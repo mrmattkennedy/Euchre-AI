@@ -1,0 +1,15 @@
+Game
+Card
+	has face, value (2-ace), and per-trick value that changes
+Player
+	ID (1-4)
+	partner
+	cards-in-hand
+	cards played
+	dealer?
+
+Deck
+
+way the game works:
+create players (4)
+create cards (24)
