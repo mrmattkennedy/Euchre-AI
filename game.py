@@ -24,11 +24,11 @@ class Game:
         """
 
         self.num_cards = 24
-        suits = ["H", "D", "S", "C"]
+        self.suits = ["H", "D", "S", "C"]
         card_nums = [i for i in range(9, 15)]
         
         self.cards = []
-        for s in suits:
+        for s in self.suits:
             for n in card_nums:
                 self.cards.append(Card(s, n))
 
@@ -68,6 +68,7 @@ class Game:
         """
         Plays the game
         Starts by dealing cards out
+        Assigns score values to each player, based on the face up card
         Pickup round 1 - see if anyone wants dealer to pick up
         Pickup round 2 - see if anyone wants to call
         Pass - move on
@@ -75,7 +76,9 @@ class Game:
         """
 
         self.deal_cards()
-
+        called = self.pickup()
+        if called:
+            pass
 
     def deal_cards(self):
         """
@@ -83,11 +86,7 @@ class Game:
         """
 
         #Get deal order based on first player to the left of the dealer
-        deal_order = []
-        curr_player = self.dealer
-        for i in range(self.num_players):
-            deal_order.append(self.players[curr_player].player_on_left())
-            curr_player = (curr_player + 1) % self.num_players
+        self.get_deal_order()
 
         #Deal out cards
         cards_available = self.cards.copy()
@@ -95,20 +94,65 @@ class Game:
         rnd_2 = [3, 2, 3, 2]
 
         #First round
-        for num, i in enumerate(deal_order):
+        for num, i in enumerate(self.order):
             for _ in range(rnd_1[num]):
                 card = random.choice(cards_available)
                 cards_available.remove(card)
                 self.players[i].add_card(card)
                 
         #Second round 
-        for num, i in enumerate(deal_order):
+        for num, i in enumerate(self.order):
             for _ in range(rnd_2[num]):
                 card = random.choice(cards_available)
                 cards_available.remove(card)
                 self.players[i].add_card(card)
 
         #Assign pickup card to choose
-        self.pickup_card = cards_available[0]
+        self.pickup_card = cards_available[0]        
         
+    def pickup(self):
+        """
+        Assigns total point values based on pickup card
+        Sees if any players want to pickup the presented card
+        If no pickup, go around and check if anyone wants to call for any suit
+        """
+        #print("Trump: {}\tDealer: {}".format(self.pickup_card, self.dealer))
+
+        #Round 1 - for each player, get value, see if want to call
+        for p in self.order:
+            self.players[p].get_hand_value(self.pickup_card.suit, self.dealer==self.players[p].id, self.pickup_card)
+
+            #If called, assign caller and have dealer pickup
+            if self.players[p].call_pickup():
+                self.trump = self.pickup_card.suit
+                self.caller = self.players[p].id
+                self.players[self.dealer].pickup(self.pickup_card)
+                return True
+
+        #Round 2 - go in order and check value for every possible trump
+        #Remove pickup card suit as available call
+        available_suits = self.suits.copy()
+        available_suits.remove(self.pickup_card.suit)
+        
+        for p in self.order:
+            for s in available_suits:
+                print(p, s)
+                self.players[p].get_hand_value(s)
+                if self.players[p].call_pickup():
+                    self.caller = self.players[p].id
+                    self.trump = s
+                    return True
+
+        return False
+        
+    def get_deal_order(self):
+        """
+        Gets the order for dealing out cards and calling pickups
+        at the start of each round, starting with first to left of dealer
+        """
+        self.order = []
+        for i in range(self.num_players):
+            self.order.append((i+self.dealer+1) % self.num_players)
+
+    
 g = Game()
