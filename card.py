@@ -9,9 +9,13 @@ class Card:
         self.suit = suit
         self.value = value
         self.pairs = {"H": "D", "D": "H", "S": "C", "C": "S"}
-        self.offsuit_values = {9: 0, 10: 0, 11: 0, 12: 1, 13: 2, 14: 5}
+        self.offsuit_values = {9: 0, 10: 0, 11: 0, 12: 1, 13: 1, 14: 5}
+        self.trump_order = [9, 10, 12, 13, 14, 11]
 
     def __str__(self):
+        return "{}{}".format(self.value, self.suit)
+
+    def __repr__(self):
         return "{}{}".format(self.value, self.suit)
 
     def is_left(self, suit):

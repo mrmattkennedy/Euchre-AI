@@ -1,3 +1,4 @@
+import random
 from collections import Counter
 
 from card import Card
@@ -11,6 +12,7 @@ class Player:
         self.id = player_id
         self.partner_id = partner_id
         self.score = 0
+        self.tricks = 0
         self.pickup_threshold = 17
         self.cards = []
         
@@ -29,11 +31,6 @@ class Player:
         self.hand_value = 0
         suits = []
 
-        '''
-        Check if dealer
-        If so, replace any single card suits
-        If none, replace lowest non trump card
-        '''
         if dealer:
             replacement_card = self.get_replacement_card(pickup_card)
             #Replace temporarily as lowest card
@@ -67,9 +64,13 @@ class Player:
         if dealer:
             self.cards[self.cards.index(pickup_card)] = replacement_card
 
-        print(self.hand_value)
 
     def get_replacement_card(self, pickup_card):
+        """
+        Check if dealer
+        If so, replace any single card suits
+        If none, replace lowest non trump card
+        """
         trump = pickup_card.suit
         
         #Count cards in each suit
@@ -109,8 +110,36 @@ class Player:
     def pickup(self, pickup_card):
         replacement_card = self.get_replacement_card(pickup_card)
         self.cards[self.cards.index(replacement_card)] = pickup_card
+        return replacement_card
 
-    def player_on_left(self, num_players=4):
-        return (self.id + 1) % num_players
+    def play_random(self, trump, lead_card=None):
+        #If no lead card, just pick one
+        if not lead_card:
+            card = random.choice(self.cards)
 
-    
+        #If there is a lead, pick a legal card
+        else:
+            #Find cards of same suit
+            lead_suit = lead_card.suit
+            if lead_card.is_left(trump):
+                lead_suit = trump
+                
+            viable = []
+            for c in self.cards:
+                if c.suit == lead_suit or c.is_left(trump):
+                    viable.append(c)
+
+            #If a viable card, choose randomly. Otherwise, choose randomly from all
+            if viable:
+                card = random.choice(viable)
+            else:
+                card = random.choice(self.cards)
+
+        self.cards.remove(card)
+        return card
+
+    def clear_hand(self):
+        self.cards.clear()
+
+    def reset_tricks(self):
+        self.tricks = 0

@@ -9,6 +9,20 @@ Game
 		get cards in hand
 
 
+	play:
+		get play order
+		play random legal card in play order
+		determine highest card
+
+	evaluate trick:
+		trump order: right, left, 14,13,12,10,9
+		non trump order: 14,13,12,11,10,9
+		cases:
+			lead card trump
+			lead card not trump, card is trump
+			lead card not trump, card is not trump
+
+
 Card
 	has face, value (2-ace), and per-trick value that changes
 Player
@@ -33,13 +47,44 @@ create game
 	
 
 
-0, 2
-1, 3
-2, 0
-3, 1
+hand value:
+say trump is hearts
+off suit 9 - 0
+10 = 1
+2,3,4,5
+trump cards - face value, right is 20, left is 15
+9 is bad, 10 is bad, jack is bad, queen is meh, king is ok, ace is good
+9-jack is 0, queen is 1, king is 2, ace is 5
 
-(i+2) % 4
+dealer is 2
+3,0,1,2
+range(4):
+(i+dealer+1) % 4
+0:3
+1:0
+2:1...
 
-0+2 % 4 = 2
-1 + 2 % 4 = 3
-2 + 2 % 4 = 0
+dealer is 0
+1,2,3,0
+0:1
+
+
+
+24 cards
+	0-3: played by that player
+	4: in my hand
+	5: in play
+	6: kitty
+	7: not seen
+
+my score (0-9)
+opponent score (0-9)
+current tricks (0-4)
+opponent tricks (0-4)
+tricks remaining (1-5)
+play order (0-3)
+trump (0-3)
+lead (0-4), 4 is lead
+caller (0-3)
+currently have trick (0-2), 2 is lead
+card to beat (0-1)
