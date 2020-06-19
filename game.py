@@ -1,15 +1,18 @@
-import random
+import pdb
 import time
+import random
+import numpy as np
+import matplotlib.pyplot as plt
 
 from card import Card
 from player import Player
+from AI.play import DQL_Play_TF1, DQL_Play_TF2
 
 class Game:
     """
     Game class
     TODO:
-    Add decision tree for pickup calls
-    Not sure what to do for play calls
+    Add decision tree for pickup calls?
     """
 
     def __init__(self, AI=True, AI_id=0):
@@ -17,13 +20,36 @@ class Game:
         self.training = True
         self.AI = AI
         self.AI_id = AI_id
-        
+
         self.create_cards()
         self.create_players()
-        self.reset_state()
+        self.state = self.reset_state()
+        
+        if self.AI:
+            self.create_AI()
+            
         self.get_first_dealer()
         self.play()
+        self.tricks_won = 0
 
+    def create_AI(self):
+        self.AI_play = DQL_Play_TF1(state_size=len(self.state),
+                                action_size=self.num_cards,
+                                hidden_sizes=[50,50])
+        self.reward = 0
+        self.terminated = False
+        self.current_state = self.reset_state()
+        self.next_state = self.reset_state()
+
+    def reset(self):
+        self.state = self.reset_state()
+        self.current_state = self.reset_state()
+        self.next_state = self.reset_state()
+        for p in self.players:
+            p.reset()
+
+        self.tricks_won = 0
+        
     def reset_state(self):
         """
         Reset state
@@ -31,7 +57,8 @@ class Game:
                 0-3 means played by that player
                 4 in my hand
                 5 in play,
-                6 not seen
+                6 kitty
+                7 not seen
             My score
             Opponent score
             Current tricks I have
@@ -44,18 +71,18 @@ class Game:
             Who currently has the hand (3 for no one)
 
         """
+        state = {}
         for c in self.cards:
-            self.state[str(c)] = 7
-        self.state['my_score'] = 0
-        self.state['op_score'] = 0
-        self.state['my_tricks'] = 0
-        self.state['op_tricks'] = 0
-        self.state['rem_tricks'] = 0
-        self.state['play_pos'] = 0
-        self.state['trump'] = 0
-        self.state['lead'] = 0
-        self.state['caller'] = 0
-        self.state['have_trick'] = 0
+            state[str(c)] = 7
+        state['my_tricks'] = 0
+        state['op_tricks'] = 0
+        state['rem_tricks'] = 5
+        state['play_pos'] = 0
+        state['trump'] = 0
+        state['lead'] = 4
+        state['caller'] = 0
+        state['have_trick'] = 2
+        return state
 
     def create_cards(self):
         """
@@ -119,74 +146,209 @@ class Game:
         Pass - move on
         If called, play
         """
+        tricks_to_play = 5000000
+        batch_size = 10
+        counter = 0
+        start = time.time()
+        
+        for i in range(tricks_to_play):
+            self.reset()
+            play_game = True
 
-        while not any(p.score >= 10 for p in self.players):
+            if i % 1000 == 0:
+                print(i)
+                
+            while not any(p.score >= 10 for p in self.players) and play_game:
+                self.deal_cards()
+                called = self.pickup()
+                if called:
+                    play_game = self.play_trick()
+                    counter += 1
+                    
+                else:
+                    #print('no call')
+                    for p in self.players:
+                        p.clear_hand()
+
+                #update AI target network
+                #self.AI_play.align_models()
+                if counter % batch_size == 0 and counter != 0:
+                    self.AI_play.retrain(batch_size)
+                    counter += 1
+
+
+        print("Won {}".format(self.tricks_won))
+        total_time = time.time() - start
+        print("Time: {}s, {}m".format(round(total_time, 2), round(total_time / 60, 2)))
+        
+        c_list = self.AI_play.get_cost_data(1000)
+        plt.figure(figsize=(14,7))
+        plt.plot(range(len(c_list)),c_list)
+        plt.xlabel('Trainings')
+        plt.ylabel('Cost')
+        plt.show()
+
+        called = False
+        while not called:
+            self.reset()
             self.deal_cards()
             called = self.pickup()
-            
             if called:
-                #Play, starting with lead and following with others
-                for _ in range(self.size_hand):
+                play_game = self.play_trick(True)
+        
+        
+    def play_trick(self, verbose=False):
+        #Play, starting with lead and following with others
+        for _ in range(self.size_hand):
+            if self.AI:
+                self.state['play_pos'] = self.order.index(self.AI_id)
 
-                    if self.AI:
-                        """
-                        If lead, then assign state and call
-                        If not lead, play until my turn and call
-                        """
-                        self.state['play_pos'] = self.order.index(self.AI_id)
-                        if self.AI_id == self.order[0]:
-                            #Update state
-                            self.state['lead'] = 4
-                            self.state['have_trick'] = 2
-                            #do stuff
-                            
-                        else:
-                            #Get lead card
-                            lead_card = self.players[self.order[0]].play_random(self.trump)
-                            trick = {self.order[0]: lead_card}
+                #AI is lead
+                if self.AI_id == self.order[0]:
+                    #Update state
+                    self.state['lead'] = 4
+                    self.state['have_trick'] = 2
+                    
+                    #Let AI play
+                    action, reset = self.AI_action()
 
-                            #Update state
-                            self.state[str(lead_card)] = 5
-                            self.state['lead'] = self.suits.index(lead_card.suit)
-                            
-                            #Every other player plays until AI
-                            for p in self.order[1:self.state['play_pos']]:
-                                trick[p] = self.players[p].play_random(self.trump, lead_card=lead_card)
-                                #Update state
-                                self.state[str(trick[p])] = 5
+                    #Illegal card, reset
+                    if reset:
+                        self.next_state = self.reset_state()
+                        self.terminated = True
+                        self.AI_play.store(self.get_state(self.state),
+                                           action,
+                                           self.reward,
+                                           self.get_state(self.state),
+                                           self.terminated)
+                        if verbose:
+                            print("Action {}, {} failed".format(action, self.cards[action]))
+                        return False
+                    
+                    #Legal move, save current state
+                    self.current_state = self.state.copy()
 
-                            #Let AI play
-                            current_winner = self.evaluate_trick(trick)
-                            self.state['have_trick'] = int(current_winner.id == self.players[self.AI_id].partner_id)
-                            #do stuff
-                            
-            
+                    lead_card = self.cards[action]
+                    self.players[self.AI_id].play_card(lead_card)
+                    trick = {self.order[0]: lead_card}
+                    
+                    #Update state
+                    self.state[str(lead_card)] = 5
+                    self.state['lead'] = self.suits.index(lead_card.suit)
+
+                #AI is not lead
+                else:
                     #Get lead card
                     lead_card = self.players[self.order[0]].play_random(self.trump)
                     trick = {self.order[0]: lead_card}
-                    #Every other player plays
-                    for p in self.order[1:]:
-                        trick[p] = self.players[p].play_random(self.trump, lead_card=lead_card)
 
-                    #Get winner of trick and assign next trick order
-                    winner = self.evaluate_trick(trick)
-                    self.players[winner].tricks += 1
-                    self.players[self.players[winner].partner_id].tricks += 1
-                    self.get_order((winner-1)%4)
-
-                #Assign score after all 5 tricks
-                self.assign_score()
-
-                #Reset tricks
-                for p in self.players:
-                    p.reset_tricks()
+                    #Update state
+                    self.state[str(lead_card)] = 5
+                    self.state['lead'] = self.suits.index(lead_card.suit)
                     
-            else:
-                print('no call')
-                for p in self.players:
-                    p.clear_hand()
+                    #Every other player plays until AI
+                    for p in self.order[1:self.state['play_pos']]:
+                        trick[p] = self.players[p].play_random(self.trump, lead_card=lead_card)
+                        self.state[str(trick[p])] = 5
 
-    
+                    #Let AI play
+                    current_winner = self.evaluate_trick(trick, verbose=False)
+                    self.state['have_trick'] = int(current_winner == self.players[self.AI_id].partner_id)
+                    action, reset = self.AI_action()
+
+                    #Illegal card, reset
+                    if reset:
+                        self.next_state = self.reset_state()
+                        self.terminated = True
+                        self.AI_play.store(self.get_state(self.state),
+                                           action,
+                                           self.reward,
+                                           self.get_state(self.state),
+                                           self.terminated)
+                        if verbose:
+                            print("Action {}, {} failed".format(action, self.cards[action]))
+                        return False
+                    
+                    #Legal move, save current state
+                    self.current_state = self.state.copy()
+                    card = self.cards[action]
+                    self.players[self.AI_id].play_card(card)
+                    trick[self.AI_id] = card
+
+                    self.state[str(trick[self.AI_id])] = 5
+                    
+                #Let rest of players play
+                for p in self.order[self.state['play_pos']+1:]:
+                    trick[p] = self.players[p].play_random(self.trump, lead_card=lead_card)
+                    self.state[str(trick[p])] = 5
+                    
+            #No AI     
+            else:
+                #Get lead card
+                lead_card = self.players[self.order[0]].play_random(self.trump)
+                trick = {self.order[0]: lead_card}
+                #Every other player plays
+                for p in self.order[1:]:
+                    trick[p] = self.players[p].play_random(self.trump, lead_card=lead_card)
+
+            #Get winner of trick and assign next trick order
+            winner = self.evaluate_trick(trick, verbose=False)
+            if verbose:
+                print("Winner: {}\nTrick: {}\n".format(winner, trick))
+            self.players[winner].tricks += 1
+            self.players[self.players[winner].partner_id].tricks += 1
+            self.get_order((winner-1)%4)
+
+            #Update and save state
+            if self.AI:
+                #Update tricks
+                if self.AI_id == winner or self.players[self.AI_id].partner_id == winner:
+                    self.state['my_tricks'] += 1
+                    self.reward = 1
+                    self.tricks_won += 1
+                else:
+                    self.state['op_tricks'] += 1
+                    self.reward = -1
+
+                #Reset card states
+                for p, c in trick.items():
+                    self.state[str(c)] = p
+                    
+                #Update remaining tricks
+                self.state['rem_tricks'] -= 1
+
+                #Check if terminated, reset next state if so
+                self.terminated = self.state['rem_tricks'] == 0
+                if self.terminated:
+                    self.next_state = self.reset_state()
+
+                #Save
+                self.AI_play.store(self.get_state(self.current_state),
+                                           action,
+                                           self.reward,
+                                           self.get_state(self.next_state),
+                                           self.terminated)
+        
+        #Assign score after all 5 tricks
+        self.assign_score()
+        
+        #Reset tricks
+        for p in self.players:
+            p.reset_tricks()
+
+        if self.AI:
+            self.state['my_tricks'] = 0
+            self.state['op_tricks'] = 0
+            self.state['rem_tricks'] = 5
+            self.state['lead'] = 4
+            self.state['have_trick'] = 2
+            for c in self.cards:
+                self.state[str(c)] = 7
+
+        #Successfully finished
+        return True
+
+                        
     def deal_cards(self):
         """
         Dealer hands out cards in order of 2,3,2,3,3,2,3,2
@@ -226,9 +388,8 @@ class Game:
         #If AI is involved, update the state of the game
         if self.AI:
             for c in self.players[self.AI_id].cards:
-                self.state[str(c)] = self.AI
-            self.pickup_card = 6
-            
+                self.state[str(c)] = self.AI_id
+            self.state[str(self.pickup_card)] = 6
         
     def pickup(self):
         """
@@ -249,10 +410,10 @@ class Game:
                 #If AI is involved, update the state of the game
                 if self.AI:
                     self.state['trump'] = self.suits.index(self.trump)
-                    self.state['caller'] = self.caller.id
+                    self.state['caller'] = self.caller
                     if self.players[self.AI_id].id == self.dealer:
                         self.state[str(replacement_card)] = 6
-                        self.state[str(self.pickup_card)] = self.AI
+                        self.state[str(self.pickup_card)] = self.AI_id
                         
                 return True
 
@@ -271,12 +432,12 @@ class Game:
                     #If AI is involved, update the state of the game
                     if self.AI:
                         self.state['trump'] = self.suits.index(self.trump)
-                        self.state['caller'] = self.caller.id
+                        self.state['caller'] = self.caller
                         
                     return True
 
         return False
-        
+    
     def get_order(self, starter):
         """
         Gets order for dealing, calling, or playing, based on starter
@@ -285,7 +446,7 @@ class Game:
         for i in range(self.num_players):
             self.order.append((i+starter+1) % self.num_players)
 
-    def evaluate_trick(self, trick):
+    def evaluate_trick(self, trick, verbose=True):
         """
         Evaluates trick to see which card won
         Check if same trick but higher
@@ -328,8 +489,8 @@ class Game:
                 if c.value > highest.value:
                     winner = p
                     highest = c
-            
-        print("Winner: {}, card: {}".format(winner, highest))
+        if verbose:
+            print("Winner: {}, card: {}".format(winner, highest))
         return winner
 
     def assign_score(self):
@@ -353,14 +514,30 @@ class Game:
             p.score += reward
         for p in self.players:
             print(p, p.score)
+                
         return reward
 
 
-    def get_state(self):
+    def get_state(self, state=None):
         """
         Gets the current state of the game
         See notes in reset_state method
+        If provided a state, return as expanded dim numpy array, otherwise get state
         """
-        return self.state
-        
+        if not state:
+            return np.expand_dims(np.array(list(self.state.values())), axis=0)
+        else:
+            return np.expand_dims(np.array(list(state.values())), axis=0)
+
+    def AI_action(self):
+        action = self.AI_play.act(self.get_state())
+        reset = False
+        #check if card is in hands - if not, terminate game and start over
+        if self.cards[action] not in self.players[self.AI_id].cards:
+            self.reward = -10
+            self.terminated = True
+            reset = True
+
+        return action, reset
+            
 g = Game()

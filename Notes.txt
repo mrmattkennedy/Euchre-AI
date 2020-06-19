@@ -46,6 +46,13 @@ create game
 	dealer is first black jack
 	
 
+For DQL network:
+	followup state should be the end of the trick, not the immediate next state
+	network:
+		size of state input, 24 card output
+		illegal card, give a really low reward, state doesn't change
+		
+
 
 hand value:
 say trump is hearts
@@ -69,7 +76,7 @@ dealer is 0
 0:1
 
 
-
+State:
 24 cards
 	0-3: played by that player
 	4: in my hand

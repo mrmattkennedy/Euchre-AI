@@ -19,6 +19,11 @@ class Player:
     def __str__(self):
         return str(self.id)
 
+    def reset(self):
+        self.cards.clear()
+        self.score = 0
+        self.tricks = 0
+
     def get_hand_value(self, trump, dealer=None, pickup_card=None):
         """
         Used to check value of hand at the beginning of each round
@@ -138,6 +143,9 @@ class Player:
         self.cards.remove(card)
         return card
 
+    def play_card(self, card):
+        self.cards.remove(card)
+        
     def clear_hand(self):
         self.cards.clear()
 
