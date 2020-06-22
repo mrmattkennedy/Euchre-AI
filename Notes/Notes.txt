@@ -33,6 +33,9 @@ Player
 	dealer?
 	points
 
+	player superclass
+	AI, AI_dumb, player sublcasses
+
 Deck
 
 way the game works:
@@ -95,3 +98,9 @@ lead (0-4), 4 is lead
 caller (0-3)
 currently have trick (0-2), 2 is lead
 card to beat (0-1)
+
+player class has 3 options
+0-random
+1-AI
+2-player
+has a "play" option that must be overridden

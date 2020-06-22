@@ -1,12 +1,22 @@
+import os
+import sys
+import pdb
+import time
 import random
 import numpy as np
 import tensorflow as tf
 from collections import deque
-import time
-import pdb
+from player import Player
 
-class DQL_Play_TF2:
-    def __init__(self, state_size, action_size, gamma=0.99, epsilon=0.1, hidden_sizes=[], alpha=0.01):
+#Append to use player class in parent directory
+sys.path.insert(0, str(Path(os.path.dirname(os.path.realpath(__file__))).parent))
+from card import Card
+
+
+class DQL_Play_TF2(Player):
+    def __init__(self, player_id, partner_id, state_size, action_size, gamma=0.99, epsilon=0.1, hidden_sizes=[], alpha=0.01):
+        super().__init__(player_id, partner_id)
+        
         self.state_size = state_size
         self.action_size = action_size
 
@@ -45,12 +55,30 @@ class DQL_Play_TF2:
     def store(self, state, action, reward, next_state, terminated):
         self.memory.append((state, action, reward, next_state, terminated))
 
-    def act(self, state):
-        if random.random() < self.epsilon:
-            action = random.randint(0, self.action_size-1)
-        else:
+    def play(self, state, trump=None, lead_suit=None, legal=False):
+        #If legal action required, get most likely card from hand
+        if legal:
             pred = self.q_network.predict(state)
-            action = np.argmax(pred)
+            action = -1
+
+            #Loop through actions from most likely to least
+            for i in pred.argsort()[::-1]:
+
+                #If card in hand, check it
+                if super().get_card(i) in self.cards:
+                    
+                    #If card is legal, use this and break
+                    if not lead_suit or (lead_suit and self.legal_card(self.cards_list[i], lead_suit, trump)):
+                        action = i
+                        break
+                
+        #If not legal action required, play according to DQL strategy   
+        elif not legal:
+            if random.random() < self.epsilon:
+                action = random.randint(0, self.action_size-1)
+            else:
+                pred = self.q_network.predict(state)
+                action = np.argmax(pred)
 
         return action
 
@@ -62,7 +90,9 @@ class DQL_Play_TF2:
             target = self.q_network.predict(state)
 
             #Reset the state
-            if not terminated:
+            if terminated:
+                target[0] = np.zeros(self.action_size)
+            else:
                 t = self.target_network.predict(np.expand_dims(next_state, axis=0))
                 target[0][action] = reward + self.gamma * np.amax(t)
 
@@ -70,8 +100,10 @@ class DQL_Play_TF2:
 
 
 
-class DQL_Play_TF1:
-    def __init__(self, state_size, action_size, seed=0, gamma=0.99, epsilon=0.1, hidden_sizes=[], alpha=0.001):
+class DQL_Play_TF1(Player):
+    def __init__(self, player_id, partner_id, cards_list, state_size, action_size, seed=0, gamma=0.99, epsilon=0.1, hidden_sizes=[], alpha=0.001):
+        super().__init__(player_id, partner_id, cards_list)
+        
         tf.compat.v1.disable_eager_execution()
         seed = int(time.time()) if seed == 0 else seed
         self.memory = deque(maxlen=2000)
@@ -102,15 +134,35 @@ class DQL_Play_TF1:
         self.sess = tf.compat.v1.Session()
         self.sess.run(tf.compat.v1.global_variables_initializer())
         
-    def act(self, state):
-        if random.random() < self.epsilon:
-            action = random.randint(0, self.action_size-1)
-        else:
+    def play(self, state, legal):
+        
+        #If legal action required, get most likely card from hand
+        if legal:
             pred = np.squeeze(self.sess.run(self.output,feed_dict={self.states: state}))
-            action = np.argmax(pred)
+            action = -1
+
+            #Loop through actions from most likely to least
+            for i in pred.argsort()[::-1]:
+
+                #If card in hand, check it
+                if super().get_card(i) in self.cards:
+                    
+                    #If card is legal, use this and break
+                    if not lead_suit or (lead_suit and self.legal_card(self.cards_list[i], lead_suit, trump)):
+                        action = i
+                        break
+                
+        #If not legal action required, play according to DQL strategy   
+        elif not legal:
+            if random.random() < self.epsilon:
+                action = random.randint(0, self.action_size-1)
+            else:
+                pred = np.squeeze(self.sess.run(self.output,feed_dict={self.states: state}))
+                action = np.argmax(pred)
 
         return action
 
+    
     def store(self, state, action, reward, next_state, terminated):
         self.memory.append((state, action, reward, next_state, terminated))
         
@@ -136,13 +188,24 @@ class DQL_Play_TF1:
                            self.r: np.array(list(map(lambda x: np.squeeze(x[reward]), batch))),
                            self.enum_actions: np.array(list(enumerate(map(lambda x: np.squeeze(x[action]), batch)))),
                            self.q_target: q_target})
-        if np.isnan(cost):
+        
+        if np.isnan(cost) or cost == np.inf:
             self.cost_list.append(1.0e+300)
+            return False
         else:
             self.cost_list.append(cost)
+            return True
 
     def get_cost_data(self, chunk_size = 1):
         return [sum(self.cost_list[i:i+chunk_size]) / chunk_size for i in range(0,len(self.cost_list),chunk_size)]
+
+    def save(self, name):
+        saver = tf.compat.v1.train.Saver()
+        save_path = saver.save(self.sess, name)
+
+    def load(self, name):
+        saver = tf.compat.v1.train.Saver()
+        saver.restore(self.sess, name)
         
 if __name__ == '__main__':   
     q = DQL_Play_TF1(20, 24, hidden_sizes = [50, 50])

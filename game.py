@@ -1,3 +1,4 @@
+import os
 import pdb
 import time
 import random
@@ -15,7 +16,7 @@ class Game:
     Add decision tree for pickup calls?
     """
 
-    def __init__(self, AI=True, AI_id=0):
+    def __init__(self):
         self.state = {}
         self.training = True
         self.AI = AI
@@ -29,8 +30,6 @@ class Game:
             self.create_AI()
             
         self.get_first_dealer()
-        self.play()
-        self.tricks_won = 0
 
     def create_AI(self):
         self.AI_play = DQL_Play_TF1(state_size=len(self.state),
@@ -40,7 +39,9 @@ class Game:
         self.terminated = False
         self.current_state = self.reset_state()
         self.next_state = self.reset_state()
-
+        self.tricks_won = []
+        self.AI_legal = False
+        
     def reset(self):
         self.state = self.reset_state()
         self.current_state = self.reset_state()
@@ -48,7 +49,7 @@ class Game:
         for p in self.players:
             p.reset()
 
-        self.tricks_won = 0
+        
         
     def reset_state(self):
         """
@@ -98,7 +99,7 @@ class Game:
         self.suits = ["H", "D", "S", "C"]
         card_nums = [i for i in range(9, 15)]
 
-        #Create cards list and state dictionary
+        #Create cards list
         self.cards = []
         for s in self.suits:
             for n in card_nums:
@@ -112,7 +113,7 @@ class Game:
         """
 
         self.num_players = 4
-        self.players = [Player(i, (i+2) % self.num_players) for i in range(0, self.num_players)]
+        self.players = [Player(i, (i+2) % self.num_players, self.cards) for i in range(0, self.num_players)]
 
 
     def get_first_dealer(self):
@@ -136,7 +137,7 @@ class Game:
 
 
 
-    def play(self):
+    def train(self):
         """
         Plays the game
         Starts by dealing cards out
@@ -146,10 +147,13 @@ class Game:
         Pass - move on
         If called, play
         """
-        tricks_to_play = 5000000
+        tricks_to_play = 10000001
+        self.tricks_won = [0] * tricks_to_play
+        tricks_played = 0
         batch_size = 10
         counter = 0
         start = time.time()
+        self.AI_legal = False
         
         for i in range(tricks_to_play):
             self.reset()
@@ -157,30 +161,44 @@ class Game:
 
             if i % 1000 == 0:
                 print(i)
+
+            if i % 100000 == 0 and i > 0:
+                self.AI_play.save(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'AI', 'DQL_Play_{}.ckpt'.format(i)))
                 
             while not any(p.score >= 10 for p in self.players) and play_game:
                 self.deal_cards()
                 called = self.pickup()
                 if called:
-                    play_game = self.play_trick()
+                    play_game = self.play_trick(i)
+                    tricks_played += 1
                     counter += 1
+                    if play_game:
+                        i+=1
                     
                 else:
                     #print('no call')
                     for p in self.players:
                         p.clear_hand()
 
-                #update AI target network
-                #self.AI_play.align_models()
-                if counter % batch_size == 0 and counter != 0:
-                    self.AI_play.retrain(batch_size)
-                    counter += 1
+            #update AI target network
+            #self.AI_play.align_models()
+            if counter % batch_size == 0 and counter != 0:
+                good_cost = self.AI_play.retrain(batch_size)
+                counter += 1
 
+                if not good_cost:
+                    print("Cost is bad at {}".format(i))
+                    break
 
-        print("Won {}".format(self.tricks_won))
+        #Get tricks played
+        self.tricks_won = self.tricks_won[:tricks_played]
+
+        #Display results
+        print("Won {} out of {}, {}%".format(sum(self.tricks_won), tricks_played, round((sum(self.tricks_won) / tricks_to_play) * 100, 3)))
         total_time = time.time() - start
         print("Time: {}s, {}m".format(round(total_time, 2), round(total_time / 60, 2)))
-        
+
+        #Display cost data
         c_list = self.AI_play.get_cost_data(1000)
         plt.figure(figsize=(14,7))
         plt.plot(range(len(c_list)),c_list)
@@ -188,16 +206,47 @@ class Game:
         plt.ylabel('Cost')
         plt.show()
 
-        called = False
-        while not called:
+        #Display trick data
+        trick_list = self.get_tricks_avg(1000)
+        plt.figure(figsize=(14,7))
+        plt.plot(range(len(trick_list)),trick_list)
+        plt.xlabel('Trainings')
+        plt.ylabel('Tricks')
+        plt.show()
+
+        self.AI_play.save(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'AI', 'DQL_Play.ckpt'))
+        tricks_to_play = 5000
+        counter = 0
+        self.tricks_won = [0] * tricks_to_play
+        
+        while counter < tricks_to_play:
             self.reset()
             self.deal_cards()
             called = self.pickup()
             if called:
-                play_game = self.play_trick(True)
+                play_game = self.play_trick(counter)
+                counter += 1
+                
+        print("Won {} out of {}, {}%".format(sum(self.tricks_won), tricks_to_play, round((sum(self.tricks_won) / tricks_to_play) * 100, 3)))
+
+    def play(self, load_path=None):
+        self.AI_play.load(load_path)
+        self.reset()
+        self.AI_legal = True
+        self.AI_play.epsilon = -1
         
+        while not any(p.score >= 10 for p in self.players):
+            self.deal_cards()
+            called = self.pickup()
+            if called:
+                play_game = self.play_trick()
+                
+            else:
+                #print('no call')
+                for p in self.players:
+                    p.clear_hand()
         
-    def play_trick(self, verbose=False):
+    def play_trick(self, i=None, verbose=False):
         #Play, starting with lead and following with others
         for _ in range(self.size_hand):
             if self.AI:
@@ -305,7 +354,8 @@ class Game:
                 if self.AI_id == winner or self.players[self.AI_id].partner_id == winner:
                     self.state['my_tricks'] += 1
                     self.reward = 1
-                    self.tricks_won += 1
+                    if i:
+                        self.tricks_won[i] = 1
                 else:
                     self.state['op_tricks'] += 1
                     self.reward = -1
@@ -514,6 +564,7 @@ class Game:
             p.score += reward
         for p in self.players:
             print(p, p.score)
+        print()
                 
         return reward
 
@@ -530,14 +581,60 @@ class Game:
             return np.expand_dims(np.array(list(state.values())), axis=0)
 
     def AI_action(self):
-        action = self.AI_play.act(self.get_state())
+        if not self.AI_legal:
+            action = self.AI_play.act(self.get_state(), self.AI_legal)
+        else:
+            actions = self.AI_play.act(self.get_state(), self.AI_legal)
+            action = -1
+            for i in actions.argsort()[::-1]:
+                if self.cards[i] in self.players[self.AI_id].cards:
+                    action = i
+                    break
+            
+                
         reset = False
         #check if card is in hands - if not, terminate game and start over
-        if self.cards[action] not in self.players[self.AI_id].cards:
+        if (action == -1) or (self.cards[action] not in self.players[self.AI_id].cards):
             self.reward = -10
             self.terminated = True
             reset = True
 
         return action, reset
+
+    def get_tricks_avg(self, chunk_size=1):
+        return [sum(self.tricks_won[i:i+chunk_size]) / chunk_size for i in range(0,len(self.tricks_won),chunk_size)]
+
+    def test_saved_models(self, start, stop, step):
+        sizes = [i for i in range(start, stop, step)]
+        wins = [0] * len(sizes)
+        win_counter = 0
+        
+        tricks_to_play = 10000
+        self.AI_play.epsilon = -1
+        for i in range(start, stop, step):
+            self.AI_play.load(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'AI', 'DQL_Play_{}.ckpt'.format(i)))
+            counter = 0
+            self.tricks_won = [0] * tricks_to_play
+            
+            while counter < tricks_to_play:
+                self.reset()
+                self.deal_cards()
+                called = self.pickup()
+                if called:
+                    play_game = self.play_trick(counter)
+                    counter += 1
+
+            print("{}: Won {} out of {}, {}%".format(i, sum(self.tricks_won), tricks_to_play, round((sum(self.tricks_won) / tricks_to_play) * 100, 3)))
+            wins[win_counter] = round((sum(self.tricks_won) / tricks_to_play) * 100, 3)
+            win_counter += 1
+            
+        plt.figure(figsize=(14,7))
+        plt.plot(sizes, wins)
+        plt.xlabel('Tricks played')
+        plt.ylabel('Wins on 5000 tricks')
+        plt.show()
+        
             
 g = Game()
+#g.test_saved_models(100000, 10000000+1, 100000)
+g.play(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'AI', 'DQL_Play_10000000.ckpt'))

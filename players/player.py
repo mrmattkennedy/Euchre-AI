@@ -1,16 +1,25 @@
+import os
+import sys
 import random
+from pathlib import Path
 from collections import Counter
+from abc import ABCMeta, abstractmethod
 
+#Append to use player class in parent directory
+sys.path.insert(0, str(Path(os.path.dirname(os.path.realpath(__file__))).parent))
 from card import Card
 
-class Player:
+class Player(metaclass=ABCMeta):
     """
     Player class
     """
-
+    #Assign from game class
+    cards = []
+    
     def __init__(self, player_id, partner_id):
         self.id = player_id
         self.partner_id = partner_id
+        
         self.score = 0
         self.tricks = 0
         self.pickup_threshold = 17
@@ -24,6 +33,12 @@ class Player:
         self.score = 0
         self.tricks = 0
 
+    def clear_hand(self):
+        self.cards.clear()
+
+    def reset_tricks(self):
+        self.tricks = 0
+        
     def get_hand_value(self, trump, dealer=None, pickup_card=None):
         """
         Used to check value of hand at the beginning of each round
@@ -108,7 +123,7 @@ class Player:
 
     def add_card(self, card):
         self.cards.append(card)
-
+        
     def call_pickup(self):
         return self.hand_value >= self.pickup_threshold
 
@@ -117,37 +132,64 @@ class Player:
         self.cards[self.cards.index(replacement_card)] = pickup_card
         return replacement_card
 
-    def play_random(self, trump, lead_card=None):
-        #If no lead card, just pick one
-        if not lead_card:
-            card = random.choice(self.cards)
+    def legal_card(self, card, lead, trump):
+        """
+        if card is same suit as lead, legal
+        if card is lead is trump and card is left, legal
+        if card is diff suit and have no cards that follow lead, legal
+        """
+        if card.suit == lead:
+            return True
+        if lead == trump and card.is_left(trump):
+            return True
 
-        #If there is a lead, pick a legal card
-        else:
-            #Find cards of same suit
-            lead_suit = lead_card.suit
-            if lead_card.is_left(trump):
-                lead_suit = trump
-                
-            viable = []
+        #If suit isn't lead suit, or if lead and trump are same and card isn't lead and isn't left
+        elif ((card.suit != lead and lead != trump) or
+              (lead == trump and (card.suit != lead and not card.is_left(trump)))):
+
+            #If any cards in hand are legal cards, return False
             for c in self.cards:
-                if c.suit == lead_suit or c.is_left(trump):
-                    viable.append(c)
+                if c.suit == lead or (lead == trump and c.is_left(trump)):
+                    return False
 
-            #If a viable card, choose randomly. Otherwise, choose randomly from all
-            if viable:
-                card = random.choice(viable)
-            else:
-                card = random.choice(self.cards)
+        return True
 
-        self.cards.remove(card)
-        return card
+    @staticmethod
+    def get_card(idx):
+        return Player.cards[idx]
 
-    def play_card(self, card):
-        self.cards.remove(card)
+    
+    @abstractmethod
+    def play(self, trump, lead_card=None):
+        pass
+
+
+    
+if __name__ == "__main__":
+    suits = ["H", "D", "S", "C"]
+    card_nums = [i for i in range(9, 15)]
+
+    #Create cards list
+    cards = []
+    for s in suits:
+        for n in card_nums:
+            cards.append(Card(s, n))
+    p = Player(1, 3, cards)
+
+    #for i, c in enumerate(cards):
+    #    print(i, c)
         
-    def clear_hand(self):
-        self.cards.clear()
-
-    def reset_tricks(self):
-        self.tricks = 0
+    for _ in range(4):
+        p.add_card(random.choice(cards[5:]))
+    p.add_card(cards[8])
+    #p.add_card(cards[7])
+    #p.add_card(cards[8])
+    #p.add_card(cards[9])
+    #p.add_card(cards[10])
+    lead ='H'
+    trump = 'H'
+    for c in p.cards:
+        print(c)
+    print()
+    for c in cards:
+        print(c, p.legal_card(c, lead, trump))
