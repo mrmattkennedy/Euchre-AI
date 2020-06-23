@@ -16,9 +16,10 @@ class Player(metaclass=ABCMeta):
     #Assign from game class
     cards = []
     
-    def __init__(self, player_id, partner_id):
+    def __init__(self, player_id, partner_id, AI):
         self.id = player_id
         self.partner_id = partner_id
+        self.AI = AI
         
         self.score = 0
         self.tricks = 0
@@ -138,6 +139,12 @@ class Player(metaclass=ABCMeta):
         if card is lead is trump and card is left, legal
         if card is diff suit and have no cards that follow lead, legal
         """
+        if card not in self.cards:
+            return False
+        
+        if not lead:
+            return True
+    
         if card.suit == lead:
             return True
         if lead == trump and card.is_left(trump):
@@ -166,30 +173,4 @@ class Player(metaclass=ABCMeta):
 
     
 if __name__ == "__main__":
-    suits = ["H", "D", "S", "C"]
-    card_nums = [i for i in range(9, 15)]
-
-    #Create cards list
-    cards = []
-    for s in suits:
-        for n in card_nums:
-            cards.append(Card(s, n))
-    p = Player(1, 3, cards)
-
-    #for i, c in enumerate(cards):
-    #    print(i, c)
-        
-    for _ in range(4):
-        p.add_card(random.choice(cards[5:]))
-    p.add_card(cards[8])
-    #p.add_card(cards[7])
-    #p.add_card(cards[8])
-    #p.add_card(cards[9])
-    #p.add_card(cards[10])
-    lead ='H'
-    trump = 'H'
-    for c in p.cards:
-        print(c)
-    print()
-    for c in cards:
-        print(c, p.legal_card(c, lead, trump))
+    pass

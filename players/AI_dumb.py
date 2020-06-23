@@ -15,20 +15,17 @@ class AI_dumb(Player):
     """
 
     def __init__(self, player_id, partner_id):
-        super().__init__(player_id, partner_id)
+        super().__init__(player_id, partner_id, AI=False)
 
-    def play(self, trump, lead_card=None):
+    def play(self, trump, lead_suit=None):
         #If no lead card, just pick one
-        if not lead_card:
+        if not lead_suit:
             card = random.choice(self.cards)
 
         #If there is a lead, pick a legal card
         else:
-            #Find cards of same suit
-            lead_suit = lead_card.suit
-            if lead_card.is_left(trump):
-                lead_suit = trump
-                
+            
+            #Find cards of same suit                
             viable = []
             for c in self.cards:
                 if c.suit == lead_suit or c.is_left(trump):
